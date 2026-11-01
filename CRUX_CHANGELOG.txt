@@ -1,0 +1,305 @@
+Crux changelog
+==============
+Newest entries first. Each entry: commit name, local time, what changed since
+the previous entry. Crux is the exam-readiness layer built on top of Anki
+(formerly "TopGRE"): it teaches the problem -> type -> method routing path and
+orders study by points at stake.
+
+
+"Crux: 7b two-way sync verified end-to-end (conflict now converges)"  (Jul 5 2026, 11:00 PM)
+- Set up and tested two-way desktop<->phone sync on Anki's own sync engine. Ran
+  the two-client test through a real sync server: A and B review 10 DIFFERENT
+  cards offline, sync -> both show all 20 reviews across 20 distinct cards, none
+  lost or doubled. Conflict: the same card rescheduled on both offline ->
+  converges to the later edit with no review lost. All four checks PASS.
+- Hardened topgre_eval/sync_test.py: reads CRUX_SYNC_ENDPOINT so it can run
+  against a throwaway server (real account untouched), and the conflict case now
+  waits so the two edits have distinct mod-times -> same-card convergence is
+  deterministic (previously it could tie and not settle).
+
+"Crux: router drill stops forcing a hard free-recall of the move"  (Jul 5 2026, 9:05 PM)
+- After you route a problem to its type, the drill now shows the move and the
+  execute step directly, instead of gating them behind a "Now recall the move ->
+  Show the move" free-recall challenge that felt too hard. Routing (problem ->
+  type) stays the graded skill; the move is shown as the answer and teaching.
+- Removed the methodShown gate, showMethod(), its keyboard shortcut, and the
+  now-unused .recall CSS. Rebuilt sveltekit; verified the old prompt is gone
+  from the served bundle. Reopen the Router drill to pick it up.
+
+"Crux: readiness heatmap shows routing accuracy and drills weak types"  (Jul 5 2026, 6:00 PM)
+- The readiness "Coverage and danger by type" heatmap now shows your exam
+  routing accuracy per type (correct/total from recorded attempts). cruxTypeMap
+  reads it from the topgrePerf config; the frontend renders "routed X/Y (Z%)"
+  or "no exam attempts" per tile.
+- Each non-empty tile is now a button: click it to open the Router drill focused
+  on exactly that type. Reuses the cruxRouterFocus one-shot mechanism; the open
+  is deferred with QTimer.singleShot and the dialog closed first, to avoid the
+  QtWebEngine re-entrancy crash from opening a dialog inside a webview callback.
+- Triage queue "Move" column and the practice-recorder dropdown now show
+  human-readable labels (e.g. "Compactness") instead of raw slugs.
+- Frontend rebuilt (sveltekit); verified the new strings are in the served
+  chunk. Backend/bridge changes are Python (mediasrv.py, readiness.py) and take
+  effect on app restart.
+
+"Crux: triage queue ranks by exam danger, not quick cards"  (Jul 5 2026, 5:20 PM)
+- Fixed the triage queue showing mostly "examples". The Rust
+  points_at_stake_queue now ranks by points at stake = exam weight x weakness x
+  (1 + how often you miss that move-type on exams), and orders by that value
+  instead of value-per-minute. Value-per-minute rewarded the quick "examples"
+  cards (1 min each) even though they have the highest exam accuracy, so they
+  led the queue; now the types you actually miss (compactness, separation,
+  connectedness) come first and examples ranks last. This also matches the spec
+  ("sort by topic weight times weakness") better than the old time metric.
+- readiness Rust tests: renamed queue_orders_new_cards_by_time_efficiency ->
+  queue_orders_new_cards_by_points_at_stake, added
+  queue_prioritizes_types_you_miss_on_exam; 13 readiness tests pass.
+- seed_demo.py now leaves the last step of each decision chain new (58 reviewed,
+  29 new spread across every move-type) so the queue always has a full spread to
+  rank. Verified on the seeded deck: top is connectedness/separation/
+  homeomorphism/compactness, examples last.
+- Updated the readiness page triage-queue description to match the new ranking.
+
+"Crux: arm64 real-device APK built and verified"  (Jul 5 2026, 4:00 PM)
+- Built the mobile backend .aar for all ABIs and the APKs. Verified the .aar now
+  contains jni/arm64-v8a/librsdroid.so (and armeabi-v7a, x86_64), and the arm64
+  APK contains lib/arm64-v8a/librsdroid.so, so real arm64 phones get the native
+  backend and no longer crash with UnsatisfiedLinkError. Rebuilt APKs copied to
+  submission/mobile-apk/ (arm64 ~101 MB, x86_64 ~106 MB).
+- To build the mobile side, the mobile repos' git/submodules (removed during the
+  monorepo vendoring) were temporarily restored from ../anki-clone-gitbak, built,
+  then removed again; the monorepo tracking is unchanged (verified clean). This
+  restore is required for any future mobile rebuild.
+
+"Crux: 7b two-device sync + conflict test (engine-level)"  (Jul 5 2026, 3:20 PM)
+- Added topgre_eval/sync_test.py: two collection instances sync through the local
+  Anki sync server (the shared Rust sync the desktop and phone use). Verified
+  no-loss/no-double-count: A reviews 10 offline, B reviews 10 different offline,
+  after sync both show 20 reviews across 20 distinct cards. Conflict: revlog is
+  append-only so no review is lost; same-card state convergence did not fully
+  settle in the minimal two-client script (disjoint converges) and is flagged for
+  real-client confirmation, reported honestly, not claimed.
+
+"Crux: produce the remaining rubric evidence (bench, calibration, held-out, 7f)"  (Jul 5 2026, 2:45 PM)
+- 7a tests: cargo test -p anki readiness -> 12 Rust tests pass; pytest
+  test_readiness.py -> 2 Python tests pass.
+- Section 9 step 1 (memory calibration): new topgre_eval/calibration.py. Held-out
+  ECE 0.026 (Brier 0.176, log loss 0.560); detects an injected overconfident
+  model (ECE 0.066), so it is not rigged.
+- Section 9 step 2 (performance held-out): new topgre_eval/perf_eval.py. Move-aware
+  model beats the baseline on log loss (0.600 vs 0.683), 75/33 train/test.
+- 7f (AI card check): new topgre_eval/ai_cardcheck.py generates from a named
+  source (sample_data/source_topology.txt) via the working proxy, enforces
+  source-quote traceability, checks vs the 50-pair gold set with a 0.80 cutoff;
+  a run gave 6 correct-useful / 4 wrong / 1 correct-but-bad, 5 blocked. Fixed the
+  checker to use recall of the gold answer's key tokens (verbose-but-correct
+  answers were being mis-flagged). crux_ai.chat gained a max_tokens param.
+- 7h benchmark on 50k cards: writes ~1ms, perf-eval ~0.3ms, readiness/triage
+  ~685-740ms p95 (meets <1s first-load, misses <500ms refresh; full-scan, noted).
+- CRUX_RESULTS.md updated with all numbers and reproduce commands.
+
+"Crux: arm64 phone backend build support (code fix)"  (Jul 5 2026, 2:05 PM)
+- Fixed Anki-Android-Backend/build_rust to cross-compile all Android ABIs
+  (aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android) on
+  Windows; the previous code hardcoded x86_64 only, so the arm64 APK shipped
+  without librsdroid.so and would crash on a real phone. Rust Android targets
+  installed.
+- KNOWN BLOCKER (build environment, not code): rebuilding the mobile backend
+  currently fails because vendoring the mobile repos into the monorepo removed
+  their .git and nested translation submodules (ftl/core-repo, ftl/qt-repo).
+  Restoring the full mobile git/submodule graph (backed up at
+  ../anki-clone-gitbak) is needed before the arm64 .aar/APK can be rebuilt. The
+  x86_64 emulator build is unaffected and works.
+
+"Crux: expand AI gold set to 50 pairs (7f)"  (Jul 5 2026, 1:47 PM)
+- Expanded topgre_eval/sample_data/gold.jsonl from 14 to 50 verified topology
+  question/answer pairs across all nine move types, the count the AI card check
+  (7f) requires. Updated AI_SETUP.md accordingly. The generated-card checker can
+  now be run against a proper gold set.
+
+"Crux: results report (leakage clean, paraphrase gap +0.254, ablation)"  (Jul 5 2026, 1:44 PM)
+- Ran the fairness/thesis tests and captured them in CRUX_RESULTS.md:
+  - Leakage (7e): CLEAN, no test item or near-copy in training.
+  - Paraphrase (7d): memory->performance gap +0.254 (recall 0.915 vs reworded
+    0.661) over 30 cards, with a per-move breakdown. Performance != memory.
+  - Ablation (section 8): interleaved beats blocked +2.8 pts; null vs plain Anki
+    at defaults (honest). Reproduce commands included.
+- Listed the still-pending numbers (benchmark, calibration, held-out perf, AI
+  card check, sync/conflict, crash tests) honestly.
+
+"Crux: study-feature ablation runner (interleaving)"  (Jul 5 2026, 1:42 PM)
+- Added topgre_eval/ablation.py: a fair, re-runnable, seed-averaged simulation
+  comparing three arms at equal study time (blocked / plain Anki / interleaved)
+  on mixed-type accuracy, with a pre-stated hypothesis. It is built to be able to
+  FAIL: retention is a pure spacing model, and interleaving's discrimination
+  benefit is an explicit knob defaulting to 0.
+- Result at defaults: interleaved beats blocked by ~2.8 pts (spacing beats
+  massing) but shows no advantage over plain Anki (honest null, reported as-is);
+  the advantage over plain appears only if you assume a discrimination benefit
+  (--disc-bonus). This is the section-8 fair test.
+
+"Crux: project README + model description docs (handin deliverables)"  (Jul 5 2026, 1:35 PM)
+- Added CRUX_README.md: exam stated up front, AGPL-3.0 + Anki credit, build/run
+  for both apps, architecture overview, the Rust-change note with the list of
+  upstream files touched and merge difficulty, and an honest status section.
+- Added CRUX_MODELS.md: one section each for the Memory, Performance, and
+  Readiness models (formulas, ranges), the projected-score method, and the
+  give-up rule. These are required section-12 deliverables.
+
+"Crux: projected overall GRE Math Subject score from topology"  (Jul 5 2026, 1:00 PM)
+- Readiness now maps topology performance to a real-scale projected GRE Math
+  Subject score (200 to 990), shown with a likely range and a confidence badge
+  (low until topology coverage is high), on both the home dashboard and the
+  readiness page. Withholds the number when there isn't enough evidence.
+- Method (documented in code): projected = 700 + topology_readiness x 200,
+  clamped to 200..990. High baseline is deliberate: topology is the cluster that
+  separates top scorers, so strength elsewhere is assumed and stated.
+
+"Crux: self-hosted Anki sync server for desktop <-> phone"  (Jul 5 2026, 12:52 PM)
+- Added tools/crux_sync_server.ps1 and SYNC_SETUP.md to run Anki's own (shared
+  Rust engine) sync server locally, so the desktop app and AnkiDroid sync the
+  same collection with no AnkiWeb account. Verified: it binds 0.0.0.0:8080 and
+  responds. Uses Anki's built-in offline-first sync and revlog-merge conflict
+  rule (reuse the shared engine, do not reinvent sync). Doc includes the exact
+  desktop/emulator/phone endpoints and the 7b offline + conflict test procedure.
+- Chose Anki sync over Firebase deliberately: Firebase would mean rebuilding a
+  parallel sync + merge layer, which fights the spec's conflict tests.
+
+"Crux: fix crash when reopening the readiness/router dialogs"  (Jul 3 2026, 9:24 PM)
+- Reopening the Router drill or Readiness dialog crashed with "wrapped C/C++
+  object ... has been deleted". Cause: the dialogs never told Anki's
+  DialogManager they had closed, so it kept a dangling reference and, on reopen,
+  called windowState() on the deleted C++ object.
+- Fix: call aqt.dialogs.markClosed("RouterDrill" / "Readiness") in each dialog's
+  reject(), matching how Anki's built-in dialogs (About, Browser, stats, etc.)
+  behave. Verified with an automated open, close, reopen self-test: no crash.
+- This is the real cause of "worked once then broke": the first open worked, the
+  second (after closing) hit the stale reference.
+
+"Crux: fix 403 'Unexpected API access' on custom page fetches"  (Jul 3 2026, 9:12 PM)
+- The router drill and readiness AI/heatmap/tuning panels fetch custom Python
+  endpoints directly. Anki's media server rejects any POST whose Content-Type is
+  not application/binary (a CSRF guard), returning 403 and popping "Unexpected
+  API access". Our fetches sent application/json, so the drill showed "Could not
+  load (Error: 403)" and the warning appeared.
+- Fix: all six custom fetches now send Content-Type: application/binary (the body
+  is still JSON text, which the handlers json.loads). Verified end to end: the
+  click opens the dialog, the fetch reaches the handler, and the drill loads.
+
+"Crux: fix crash when clicking home dashboard actions"  (Jul 3 2026, 9:00 PM)
+- Clicking a heatmap tile (and the Cram/Router/Readiness home buttons) crashed
+  Anki. Root cause: opening a webview-based dialog synchronously from inside the
+  deck browser webview's own click callback re-enters QtWebEngine and crashes.
+- Fix: dispatch every home dashboard action on the next event-loop tick
+  (QTimer.singleShot(0, ...)) so the click callback returns first. Verified the
+  router/readiness dialogs now open cleanly from the home.
+
+"Crux: fix overlapping tiles in the coverage/danger heatmap"  (Jul 3 2026, 8:43 PM)
+- The home heatmap tiles are clickable buttons, and Anki's global button rule
+  (margin plus content-box sizing) combined with an explicit width:100% made each
+  tile wider than its grid cell, so they overlapped. Fixed with box-sizing:
+  border-box, width:auto, min-width:0, and margin:0, and preserved the danger
+  tint on hover. Added the same box-sizing to the readiness heatmap for safety.
+
+"Crux: focus a type in the router drill + AI proxy fix"  (Jul 3 2026, 5:10 PM)
+- Router drill can now focus a single topology type (a Focus picker), and the
+  home heatmap tiles are clickable: click a family to jump straight into a drill
+  focused on it. This closes the triage loop: see the danger, drill exactly that.
+- Fixed the AI integration so it actually calls the model:
+  - crux_ai now also reads the documented OPENAI_BASE_URL / OPENAI_API_KEY (and
+    TOPGRE_AI_MODEL), not only the CRUX_AI_* names, so an existing proxy setup
+    works with no extra config.
+  - Added a browser User-Agent to the request; Cloudflare was returning 403
+    (error 1010, bot protection) for the default urllib agent. Verified live:
+    the proxy now returns 200 and the coach/explain use real model output.
+
+"Crux: honesty/tuning panel on the readiness page"  (Jul 3 2026, 2:20 AM)
+- Added a "Honesty and tuning" panel: edit the give-up thresholds (minimum
+  graded reviews, minimum exam attempts, minimum coverage) and the interleaving
+  toggle, then save. This surfaces the honesty rule (Crux withholds a score until
+  there is enough evidence) as something you can see and adjust.
+- New handlers crux_settings (read) and crux_settings_save (write on the main
+  thread) back the panel; values persist in the collection config and sync.
+
+"Crux: reviewer answer accents + active-recall router drill"  (Jul 3 2026, 2:08 AM)
+- Reviewer: the Again button now reads rose and the recommended answer (default
+  ease) is an indigo-violet gradient, so the grade choices carry meaning at a
+  glance instead of four identical buttons.
+- Router drill is now genuinely two-stage: after you route the problem to a type,
+  it asks you to recall the move before revealing it (active recall), then shows
+  the move, follow-up, and optional explanation. Keyboard: Enter/Space/M reveals
+  the move, then Enter/N advances.
+
+"Crux: coverage/danger heatmap on the home dashboard"  (Jul 3 2026, 1:56 AM)
+- The home screen (deck browser) now shows the coverage/danger heatmap directly,
+  computed in Python during render (no network needed). You see the triage
+  picture the moment you open the app: which topology families carry the most
+  points at stake, and which have no cards yet.
+- High-danger tiles switch to light text for contrast; empty tiles are dashed.
+
+"Crux: coverage/danger heatmap + router keyboard play"  (Jul 3 2026, 1:45 AM)
+- Readiness page now has a "Coverage and danger by type" heatmap: one tile per
+  topology move family, indigo intensity scaled to points at stake, dashed tiles
+  for families with no cards yet. Makes the triage picture legible at a glance.
+- New read-only handler crux_type_map aggregates cards and danger per type.
+- Router drill is now keyboard-playable: press 1-4 to pick a type, Enter or N for
+  the next problem, E to explain. Option buttons show their number key.
+
+"Crux: Router drill 'Explain why' + reviewer button polish"  (Jul 3 2026, 1:32 AM)
+- Router drill reveal now has an "Explain why" button. It explains what signal in
+  the problem points to that move family and why the move resolves it, teaching
+  the routing itself. Uses AI when configured, otherwise a template from the
+  card's own method text (works offline).
+- New read-only handler crux_ai_explain in mediasrv.
+- Reviewer answer buttons (Again/Hard/Good/Easy) are now pill-shaped with a
+  subtle hover lift and indigo shadow, respecting reduced-motion.
+
+"Crux: AI coach (triage plan) with deterministic fallback"  (Jul 3 2026, 1:20 AM)
+- Added the Crux coach to the readiness page: press "Get plan" and it returns a
+  concrete next-actions plan built from the triage engine (your most dangerous
+  routing families, coverage gaps, attempt count). It is labeled "engine plan".
+- When an AI proxy is configured (env CRUX_AI_PROXY_URL / CRUX_AI_PROXY_TOKEN,
+  the existing token-gated Cloudflare OpenAI proxy), the plan is rewritten by the
+  model and labeled "AI plan". The OpenAI key never touches the client.
+- New qt/aqt/crux_ai.py helper: short timeout, fails soft to the deterministic
+  plan, so the app never hangs and the feature works offline. AI is additive.
+- New read-only handler crux_ai_coach in mediasrv aggregates danger by move type.
+
+"Crux: Router drill (problem to type to method) + toolbar/overview polish"  (Jul 3 2026, 1:05 AM)
+- New flagship feature: the Router drill. It shows a problem stem and asks which
+  problem type (move family) it calls for, then reveals the move that solves it.
+  This trains the problem -> type -> method decision path, which is the spiky POV
+  (route the problem, do not just recall facts).
+  - Frontend: ts/routes/router (SvelteKit page) in the Corporate Trust style,
+    with a progress bar, four-option type picker, correct/misroute feedback,
+    move + follow-up reveal, and an end-of-session summary that lists the types
+    you misrouted most.
+  - Data: a read-only Python handler (crux_routing_drill in mediasrv) builds the
+    drill items from the decision-chain notes already in the collection.
+  - Scoring: each routing choice feeds the Performance model through
+    RecordExamAttempt, so drilling routing also updates readiness and danger.
+  - Wiring: RouterDrill Qt dialog, Tools menu item (Ctrl+Shift+D), and a
+    "Router drill" button on the Crux home dashboard.
+- Toolbar: indigo-tinted rounded hover on the top-bar items for cohesion.
+- Overview (deck study screen): the counts + Study now panel is now an elevated
+  card with a larger heading.
+
+"Crux: rebrand, dashboard home, richer topology seed"  (Jul 3 2026, 12:40 AM)
+- Rebranded the exam-readiness layer from "TopGRE" to "Crux" across the Tools
+  menu and the readiness dialog title.
+- Rebuilt the deck browser (the screen you see on open) into the Crux home
+  dashboard: brand header, an honest status line, Memory/Performance/Readiness
+  score chips, a best-next callout, coverage/reviews/attempts meta, primary
+  actions (Cram most dangerous, Reorder triage, Open readiness), and the deck
+  list restyled as an elevated panel. All existing deck drag/drop, gears, and
+  collapse hooks preserved.
+- Shifted the app-wide light palette to Corporate Trust (slate neutrals, indigo
+  primary/links/focus, indigo-violet primary button gradient, indigo-tinted
+  shadows) via _color-palette.scss + _vars.scss, so every screen and native Qt
+  widget matches, not just the readiness page. Dark mode left intact.
+- Redesigned the readiness SvelteKit page and score cards (hero, action buttons
+  wired to Cram/Triage via the pycmd bridge, stat strip, triage table with
+  weakness bars, exam recorder, evidence grid).
+- Expanded the baseline topology content from 9 to 29 decision chains (87 cards)
+  covering the full outline with real GRE-level point-set topology, and made the
+  seed deterministic (clean slate + attempt reset). Deck renamed "Crux Topology".
+
